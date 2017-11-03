@@ -3,7 +3,7 @@ import {
 } from '@phosphor/disposable';
 
 import {
-    JupyterLab, JupyterLabPlugin
+    JupyterLab, JupyterLabPlugin, ILayoutRestorer
 } from '@jupyterlab/application';
 
 import {
@@ -11,7 +11,7 @@ import {
 } from '@jupyterlab/services';
 
 import {
-    ToolbarButton, ICommandPalette
+    ToolbarButton, ICommandPalette, InstanceTracker
 } from '@jupyterlab/apputils';
 
 import {
@@ -34,6 +34,9 @@ import {
     Message
 } from '@phosphor/messaging';
 
+import {
+    JSONExt // new
+} from '@phosphor/coreutils';
 import '../style/index.css';
 
 export
@@ -64,8 +67,10 @@ class ButtonExtension implements DocumentRegistry.IWidgetExtension<NotebookPanel
     /**
      * Create a new extension object.
      */
-    constructor(app: JupyterLab) {
+    constructor(app: JupyterLab, palette: ICommandPalette, restorer: ILayoutRestorer) {
         this._app = app;
+        this._palette = palette;
+        this._restorer = restorer;
     }
     createNew(panel: NotebookPanel, context: DocumentRegistry.IContext<INotebookModel>): IDisposable {
         let callback = () => {
@@ -76,14 +81,14 @@ class ButtonExtension implements DocumentRegistry.IWidgetExtension<NotebookPanel
         let button = new ToolbarButton({
             className: 'myButton',
             onClick: callback,
-            tooltip: 'Run All'
+            tooltip: 'Show Regulus'
         });
 
         let i = document.createElement('i');
         i.classList.add('fa', 'fa-fast-forward');
         button.node.appendChild(i);
 
-        panel.toolbar.insertItem(0, 'runAll', button);
+        panel.toolbar.insertItem(0, 'regulus', button);
         return new DisposableDelegate(() => {
             button.dispose();
         });
@@ -91,7 +96,19 @@ class ButtonExtension implements DocumentRegistry.IWidgetExtension<NotebookPanel
 
     showxkcd() {
         //canvas represents the new widget
+
         let xkcd = this._xkcd = this._xkcd|| new XkcdWidget();
+        const command: string = 'regulus:open';
+
+        let tracker = new InstanceTracker<Widget>({namespace:'regulus'});
+        //console.log(this._app);
+        //console.log(this._restorer);
+        this._restorer.restore(tracker, {
+            command,
+            args: () => JSONExt.emptyObject,
+            name: () => 'regulus'
+        });
+
         xkcd.update();
         if (!xkcd.isAttached) {
             this._app.shell.addToMainArea(xkcd);
@@ -100,6 +117,8 @@ class ButtonExtension implements DocumentRegistry.IWidgetExtension<NotebookPanel
     }
     private _xkcd : XkcdWidget = null;
     private _app: JupyterLab;
+    private _palette: ICommandPalette;
+    private _restorer: ILayoutRestorer;
 }
 
 
@@ -112,7 +131,7 @@ class XkcdWidget extends Widget {
         this.settings = ServerConnection.makeSettings();
 
         this.id = 'xkcd-jupyterlab';
-        this.title.label = 'xkcd.com';
+        this.title.label = 'Regulus';
         this.title.closable = true;
         this.addClass('jp-xkcdWidget');
 
@@ -158,18 +177,52 @@ class XkcdWidget extends Widget {
     app.docRegistry.addWidgetExtension('Notebook', new ButtonExtension());
 };
 */
-function activate(app: JupyterLab, palette: ICommandPalette): IButtonExtension {
-    let extension = new ButtonExtension(app);
-    app.docRegistry.addWidgetExtension('Notebook', extension);
-    return extension;
+function activate(app: JupyterLab, palette: ICommandPalette, restorer: ILayoutRestorer): IButtonExtension {
+    let plugin = new ButtonExtension(app,palette,restorer);
+    app.docRegistry.addWidgetExtension('Notebook', plugin);
+    let widget: XkcdWidget;
+    const command: string = 'regulus:open';
+
+    app.commands.addCommand(command, {
+        label: 'newRegulus',
+        execute: () => {
+            if (!widget) {
+                // Create a new widget if there is none
+                widget = new XkcdWidget();
+                widget.update();
+            }
+            if(!tracker.has(widget)){
+                //Track state of widget for restoration, not sure when is tracker initialized
+                tracker.add(widget);
+            }
+            if (!widget.isAttached) {
+                // Attach the widget to the main area if it's not there
+                app.shell.addToMainArea(widget);
+            }else{
+                // Refresh the comic in the widget
+                widget.update();
+            }
+            // Activate the widget
+            app.shell.activateById(widget.id);
+        }
+    });
+    // Add the command to the palette.
+    palette.addItem({ command, category: 'Tutorial' });
+    let tracker = new InstanceTracker<Widget>({namespace:'regulus'});
+    restorer.restore(tracker, {
+        command,
+        args: () => JSONExt.emptyObject,
+        name: () => 'regulus'
+    });
+    return plugin;
 }
 
 
 export
 const plugin: JupyterLabPlugin<IButtonExtension> = {
-    id: 'button.xkcd',
+    id: 'button.regulus',
     provides: IButtonExtension,
-    requires: [ICommandPalette],
+    requires: [ICommandPalette,ILayoutRestorer],
     activate: activate,
     autoStart: true
 }
